@@ -1,5 +1,5 @@
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import axios from "axios";
@@ -51,8 +51,46 @@ const topFans = [
   },
 ];
 
+import { useAccount, useSignMessage } from "wagmi";
+
 const LeaderboardView = () => {
   const [channel, setChannel] = useState<{ channelId: string | null }>({ channelId: null });
+
+  // Withdraw state
+  // Recipients hardcoded: Top watchers
+  const recipients = [
+    "0x52da84ecc16519cdc63bb28a64ce6f51ad6f1abf",
+    "0x2211ee747c6905b6343f305e7685dc7f68edebfd"
+  ];
+  // Hardcode withdrawal amounts as demo (e.g. equally split 1 ETH)
+  const amounts = ["0.5", "0.5"]; // Send 0.5 ETH to each
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+
+  const { address, isConnected } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+  // Mutation for withdraw
+  const { mutateAsync: triggerWithdraw, isPending: isWithdrawing, isSuccess: withdrawSuccess, isError: withdrawFailed } = useMutation({
+    mutationFn: async () => {
+      if (!channel.channelId || !address) throw new Error("Missing channel or address");
+      if (recipients.some(r => !r) || amounts.some(a => !a || isNaN(Number(a)))) throw new Error("Missing or invalid fields");
+      const weiAmounts = amounts.map(a => BigInt(Math.floor(Number(a) * 1e18)).toString());
+      const msg = `Withdraw pool for channel: ${channel.channelId} to ${recipients.join(",")} amounts: ${weiAmounts.join(",")} by: ${address}`;
+      const signature = await signMessageAsync({ message: msg });
+      await axios.post("http://localhost:3003/withdraw", {
+        channelId: channel.channelId,
+        recipients,
+        amounts: weiAmounts,
+        signature,
+        message: msg,
+      });
+    },
+    onSuccess: () => {
+      setWithdrawError(null);
+    },
+    onError: (err: any) => {
+      setWithdrawError(err?.response?.data?.error || "Failed to withdraw");
+    }
+  });
 
   useEffect(() => {
     chrome.tabs?.query(
@@ -118,6 +156,33 @@ const LeaderboardView = () => {
             Channel ID: <span className="font-mono">{channel.channelId}</span>
           </div>
         )}
+      </div>
+
+      <div className="mb-4 rounded-xl border border-orange-300 bg-orange-50 p-4">
+        <div className="text-sm font-bold mb-3">Pool Withdrawal Targets</div>
+        <div className="space-y-2 mb-2">
+          <div className="flex items-center justify-between rounded border border-orange-200 px-3 py-2 bg-white">
+            <span className="font-mono text-xs text-orange-700 ">
+              0x52da...1abf
+            </span>
+            <span className="font-bold text-orange-900 text-sm">Top watcher #1</span>
+          </div>
+          <div className="flex items-center justify-between rounded border border-orange-200 px-3 py-2 bg-white">
+            <span className="font-mono text-xs text-orange-700">
+              0x2211...ebfd
+            </span>
+            <span className="font-bold text-orange-900 text-sm">Top watcher #2</span>
+          </div>
+        </div>
+        <button
+          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 font-semibold rounded-xl disabled:bg-gray-300 mt-2"
+          disabled={isWithdrawing || !isConnected || !channel.channelId}
+          onClick={() => { setWithdrawError(null); triggerWithdraw(); }}
+        >
+          {isWithdrawing ? "Withdrawing..." : "Withdraw & Distribute"}
+        </button>
+        {withdrawError && <div className="text-red-500 text-xs mt-2">{withdrawError}</div>}
+        {withdrawSuccess && !isWithdrawing && <div className="text-green-600 text-xs mt-2">Withdrawal successful!</div>}
       </div>
 
       <div className="space-y-3">
