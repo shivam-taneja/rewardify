@@ -29,4 +29,18 @@ contract Rewardify {
         address indexed creator,
         uint256 totalAmount
     );
+
+    /// @notice Create a pool for a verified channel.
+    /// @param channelId keccak256 hashed channel id (e.g. keccak256("UCxxx..."))
+    /// @param owner creator wallet address
+    function createPool(bytes32 channelId, address owner) external {
+        require(owner != address(0), "Invalid owner");
+        require(
+            channelPools[channelId].owner == address(0),
+            "Pool already exists"
+        );
+
+        channelPools[channelId] = ChannelPool({owner: owner, balance: 0});
+        emit PoolCreated(channelId, owner);
+    }
 }
