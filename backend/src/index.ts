@@ -16,27 +16,42 @@ app.use(express.json());
 app.use(morgan('dev'));
 
 import RewardifyABI from './Rewardify.json';
+import { Channel } from './models/Channels';
+import mongoose from 'mongoose';
 
 const provider = new JsonRpcProvider(process.env.RPC_URL);
 const wallet = new Wallet(process.env.PRIVATE_KEY!, provider);
 const contractAddress = process.env.CONTRACT_ADDRESS!;
 const contract = new Contract(contractAddress, RewardifyABI.abi, wallet);
 
-// In-memory mapping for demo (replace with DB in prod)
-const channelMap: Record<string, string> = {}; // { channelId: walletAddress }
+
+const mongoUri = process.env.MONGO_URI!;
+if (!mongoUri) {
+  throw new Error("Missing MONGO_URI in .env");
+}
+
+mongoose
+  .connect(mongoUri, {
+    dbName: "rewardify",
+  })
+  .then(() => {
+    console.log("✅ Connected to MongoDB Atlas");
+  })
+  .catch((err) => {
+    console.error("❌ MongoDB connection error:", err);
+  });
+
+
 
 /**
  * @route GET /is-registered/:channelId
- * @desc Check if channelId is in local DB (channelMap)
- * @returns { exists: boolean }
+ * @desc Check if channelId exists in DB
  */
 app.get("/is-registered/:channelId", async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
-
-    const exists = !!channelMap[channelId];
-
-    res.json({ exists });
+    const channel = await Channel.findOne({ channelId });
+    res.json({ exists: !!channel });
   } catch (err: any) {
     console.error(err);
     res.status(500).json({ error: err.message || "Failed to check registration" });
@@ -45,8 +60,7 @@ app.get("/is-registered/:channelId", async (req: Request, res: Response) => {
 
 /**
  * @route POST /register
- * @desc Register a creator (verify channel off-chain, then store & create pool)
- * @body { channelId: string, owner: string }
+ * @desc Register a creator and create pool on-chain
  */
 app.post("/register", async (req: Request, res: Response) => {
   try {
@@ -59,6 +73,7 @@ app.post("/register", async (req: Request, res: Response) => {
     try {
       recovered = verifyMessage(message, signature);
     } catch {
+      console.log("INvalid sig format")
       return res.status(400).json({ error: "Invalid signature format" });
     }
 
@@ -66,11 +81,17 @@ app.post("/register", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Signature does not match owner" });
     }
 
-    const channelHash = keccak256(toUtf8Bytes(channelId));
-    // Save mapping off-chain
-    channelMap[channelId] = owner;
+    const existing = await Channel.findOne({ channelId });
+    if (existing) {
+      console.log("DUplicate")
+      return res.status(400).json({ error: "Channel already registered" });
+    }
+
+    // Save mapping in MongoDB
+    await Channel.create({ channelId, owner });
 
     // Create pool on-chain
+    const channelHash = keccak256(toUtf8Bytes(channelId));
     const tx = await contract.createPool(channelHash, owner);
     await tx.wait();
 
@@ -87,18 +108,15 @@ app.post("/register", async (req: Request, res: Response) => {
 
 /**
  * @route POST /tip
- * @desc Send tip to a channel's pool
- * @body { channelId: string, amount: string (in wei), tipperAddress: string, signature: string, message: string }
+ * @desc Send tip to a channel’s pool
  */
 app.post("/tip", async (req: Request, res: Response) => {
   try {
     const { channelId, amount, tipperAddress, signature, message } = req.body;
-
     if (!channelId || !amount || !tipperAddress || !signature || !message) {
       return res.status(400).json({ error: "channelId, amount, tipperAddress, signature, and message are required" });
     }
 
-    // Verify signature
     let recovered;
     try {
       recovered = verifyMessage(message, signature);
@@ -110,14 +128,12 @@ app.post("/tip", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Signature does not match tipper address" });
     }
 
-    // Check if channel exists
-    if (!channelMap[channelId]) {
+    const channel = await Channel.findOne({ channelId });
+    if (!channel) {
       return res.status(404).json({ error: "Channel not registered" });
     }
 
     const channelHash = keccak256(toUtf8Bytes(channelId));
-
-    // Call tip function on contract (backend sends the transaction with amount)
     const tx = await contract.tip(channelHash, { value: amount });
     await tx.wait();
 
@@ -125,7 +141,7 @@ app.post("/tip", async (req: Request, res: Response) => {
       success: true,
       message: "Tip sent successfully",
       txHash: tx.hash,
-      amount: amount
+      amount
     });
   } catch (err: any) {
     console.error(err);
@@ -135,17 +151,11 @@ app.post("/tip", async (req: Request, res: Response) => {
 
 /**
  * @route POST /withdraw
- * @desc Withdraw pool and distribute (creator, platform, top viewer)
- * @body { 
- *   channelId: string, 
- *   recipients: string[] (array of addresses: [creator, platform, topViewer]),
- *   amounts: string[] (array of amounts in wei corresponding to recipients)
- * }
+ * @desc Withdraw pool and distribute
  */
 app.post("/withdraw", async (req: Request, res: Response) => {
   try {
     const { channelId, recipients, amounts, signature, message } = req.body;
-
     if (!channelId || !recipients || !amounts || !signature || !message) {
       return res.status(400).json({ error: "channelId, recipients, amounts, signature, and message are required" });
     }
@@ -154,13 +164,11 @@ app.post("/withdraw", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "recipients and amounts length mismatch" });
     }
 
-    // Check if channel exists
-    const creatorAddress = channelMap[channelId];
-    if (!creatorAddress) {
+    const channel = await Channel.findOne({ channelId });
+    if (!channel) {
       return res.status(404).json({ error: "Channel not registered" });
     }
 
-    // Verify signature (creator must sign)
     let recovered;
     try {
       recovered = verifyMessage(message, signature);
@@ -168,13 +176,11 @@ app.post("/withdraw", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Invalid signature format" });
     }
 
-    if (recovered.toLowerCase() !== creatorAddress.toLowerCase()) {
+    if (recovered.toLowerCase() !== channel.owner.toLowerCase()) {
       return res.status(401).json({ error: "Only channel owner can withdraw" });
     }
 
     const channelHash = keccak256(toUtf8Bytes(channelId));
-
-    // Call withdraw on contract
     const tx = await contract.withdraw(channelHash, recipients, amounts);
     await tx.wait();
 
@@ -193,14 +199,12 @@ app.post("/withdraw", async (req: Request, res: Response) => {
 
 /**
  * @route GET /pool-balance/:channelId
- * @desc Get current pool balance for a channel
- * @returns { balance: string (in wei), balanceEth: string }
  */
 app.get("/pool-balance/:channelId", async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
-
-    if (!channelMap[channelId]) {
+    const channel = await Channel.findOne({ channelId });
+    if (!channel) {
       return res.status(404).json({ error: "Channel not registered" });
     }
 
@@ -220,53 +224,45 @@ app.get("/pool-balance/:channelId", async (req: Request, res: Response) => {
 
 /**
  * @route GET /channel-owner/:channelId
- * @desc Get owner wallet address for a channel
- * @returns { owner: string }
  */
 app.get("/channel-owner/:channelId", async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
-
     const channelHash = keccak256(toUtf8Bytes(channelId));
     const owner = await contract.getOwner(channelHash);
-
-    res.json({
-      channelId,
-      owner
-    });
+    res.json({ channelId, owner });
   } catch (err: any) {
     console.error(err);
     res.status(500).json({ error: err.message || "Failed to get owner" });
   }
 });
 
-app.get('/health', async (req: Request, res: Response) => {
+app.get('/health', async (_req: Request, res: Response) => {
   try {
-    res.status(200).json({ status: 'ok', db: 'connected' });
+    const dbState = mongoose.connection.readyState === 1 ? 'connected' : 'not_connected';
+    res.status(200).json({ status: 'ok', db: dbState });
   } catch {
     res.status(500).json({ status: 'fail', db: 'not_connected' });
   }
 });
 
-// 404 handler
-app.use((req: Request, res: Response) => {
-  res.status(404).json({ error: 'Not Found' });
-});
-
-// Error handler
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+// 404 + error handlers
+app.use((req: Request, res: Response) => res.status(404).json({ error: 'Not Found' }));
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error('Error: ', err);
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-// Make sure to close Prisma on process exit for clean shutdown
+// Graceful shutdown
 process.on('SIGINT', async () => {
-  process.exit();
+  await mongoose.connection.close();
+  process.exit(0);
 });
 process.on('SIGTERM', async () => {
-  process.exit();
+  await mongoose.connection.close();
+  process.exit(0);
 });
 
 app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+  console.log(`🚀 Server running at http://localhost:${port}`);
 });
