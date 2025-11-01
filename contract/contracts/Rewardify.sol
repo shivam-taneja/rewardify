@@ -12,6 +12,9 @@ contract Rewardify {
     // channelId (hashed) => pool info
     mapping(bytes32 => ChannelPool) public channelPools;
 
+    // Backend address that can execute withdrawals on behalf of owners
+    address public backend;
+
     // Events
     event PoolCreated(bytes32 indexed channelId, address indexed owner);
     event WalletUpdated(
@@ -29,6 +32,10 @@ contract Rewardify {
         address indexed creator,
         uint256 totalAmount
     );
+
+    constructor() {
+        backend = msg.sender; // Deployer is the backend
+    }
 
     /// @notice Create a pool for a verified channel.
     /// @param channelId keccak256 hashed channel id (e.g. keccak256("UCxxx..."))
@@ -67,7 +74,13 @@ contract Rewardify {
     ) external {
         ChannelPool storage pool = channelPools[channelId];
         require(pool.owner != address(0), "Channel not registered");
-        require(msg.sender == pool.owner, "Not channel owner");
+        
+        // Allow either pool owner OR backend to withdraw
+        require(
+            msg.sender == pool.owner || msg.sender == backend,
+            "Not authorized"
+        );
+        
         require(recipients.length == amounts.length, "Length mismatch");
         require(recipients.length > 0, "No recipients");
 
