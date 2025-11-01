@@ -1,11 +1,10 @@
-# Monad Blitz Delhi Submission Process
+# Rewardify - Watch. Reward. Repeat.
 
-1. Visit the `monad-blitz-delhi` repo (link [here](https://github.com/monad-developers/monad-blitz-delhi)) and fork it.
+Rewardify is a Chrome extension + smart contract platform that rewards YouTube creators and viewers using on-chain pools.
+When you watch or tip a channel, you help fill that creator’s pool - and both the creator and top viewers earn rewards.
 
-<img width="1512" alt="Screenshot 2025-06-05 at 1 47 48 PM" src="https://github.com/user-attachments/assets/a837398a-cca4-42cf-b6ff-709b567c9aa9" />
+## Overview
 
-2. Give it your project name, a one-liner description, make sure you are forking `main` branch and click `Create Fork`.
-
-<img width="1512" alt="Screenshot 2025-06-05 at 1 48 10 PM" src="https://github.com/user-attachments/assets/62ea369a-de81-4460-8136-e3f9320abfb8" />
-
-3. In your fork you can make all the changes you want, add code of your project, create branches, add information to `README.md`, you can change anything and everything.
+- Rewardify bridges Web2 content consumption (YouTube) with Web3 incentives.
+- Each YouTube channel has a unique on-chain reward pool linked to their wallet.
+- Fans can tip MON to that channel’s pool, and creators can later withdraw and distribute rewards among their top viewers.
