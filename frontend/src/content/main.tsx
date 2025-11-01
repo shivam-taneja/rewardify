@@ -79,3 +79,103 @@ const observer = new MutationObserver(() => {
 observer.observe(document.body, { childList: true, subtree: true });
 // First page load
 tryMountRewardifyReactButton();
+
+function isOnValidYouTubePage() {
+  const path = location.pathname;
+
+  // Watch pages: /watch?v=...
+  if (path === '/watch') return true;
+
+  // Shorts pages: /shorts/VIDEO_ID
+  if (path.startsWith('/shorts/')) return true;
+
+  // Channel pages: /@username or /channel/UCxxxxxx
+  if (path.startsWith('/@') || path.startsWith('/channel/')) return true;
+
+  // Otherwise (home, search, trending, etc)
+  return false;
+}
+
+function getChannelInfo() {
+  if (!isOnValidYouTubePage()) return null;
+
+  // Handle each layout type separately
+  const path = location.pathname;
+
+  // 🎥 Watch page
+  if (path === '/watch') {
+    const owner = document.querySelector('ytd-watch-flexy ytd-video-owner-renderer');
+    if (!owner) return null;
+
+    const name = owner.querySelector('#channel-name #text a')?.textContent?.trim() || null;
+    const avatarUrl = (owner.querySelector('#avatar img') as HTMLImageElement | null)?.src || null;
+    const subCount = owner.querySelector('#owner-sub-count')?.textContent?.trim() || null;
+
+    return { name, avatarUrl, subCount };
+  }
+
+  // 🎬 Shorts page
+  if (path.startsWith('/shorts/')) {
+    const owner = document.querySelector('yt-reel-channel-bar-view-model');
+    if (!owner) return null;
+
+    const name = owner.querySelector('a.yt-core-attributed-string__link')?.textContent?.trim() || null;
+    const avatarUrl = (owner.querySelector('img.yt-spec-avatar-shape__image') as HTMLImageElement | null)?.src || null;
+    const subCount = null; // not available on Shorts layout
+
+    return { name, avatarUrl, subCount };
+  }
+
+  // 📺 Channel page
+  if (path.startsWith('/@') || path.startsWith('/channel/')) {
+    // Find the header container
+    const header = document.querySelector('ytd-channel-name, .yt-page-header-view-model__page-header-headline-info');
+    if (!header) return null;
+
+    // Channel name
+    const name =
+      header.querySelector('h1 span, yt-dynamic-text-view-model h1 span')?.textContent?.trim() || null;
+
+    // Avatar
+    const avatarUrl =
+      ((document.querySelector('.yt-page-header-view-model__page-header-headline img') ||
+        document.querySelector('yt-decorated-avatar-view-model img')) as HTMLImageElement || null)?.src || null;
+
+    // Subscriber count (find any text node that ends with "subscribers")
+    const subCountEl = Array.from(
+      document.querySelectorAll('.yt-content-metadata-view-model__metadata-text, span[role="text"]')
+    ).find((el) => el.textContent?.includes('subscriber'));
+    const subCount = subCountEl?.textContent?.trim() || null;
+
+    return { name, avatarUrl, subCount };
+  }
+
+
+  return null;
+}
+
+// Listen for direct requests from the sidepanel
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === "GET_CHANNEL_INFO") {
+    sendResponse(getChannelInfo());
+  }
+  return true;
+});
+
+// Notify sidepanel on SPA navigation/page change (push current info, or null if not on a real YT video)
+let lastChannelInfo: { name: string | null; avatarUrl: string | null; subCount: string | null } | null = null;
+function checkAndBroadcastChannelInfo() {
+  const info = getChannelInfo();
+
+  // Compare previous info and broadcast changes (including "null" if you navigate away)
+  if (JSON.stringify(info) !== JSON.stringify(lastChannelInfo)) {
+    lastChannelInfo = info;
+    chrome.runtime.sendMessage({ type: "CHANNEL_INFO_UPDATED", info }); // info=null means no channel
+  }
+}
+
+// Watch for site changes regularly (SPAs like YouTube)
+const channelInfoObserver = new MutationObserver(checkAndBroadcastChannelInfo);
+channelInfoObserver.observe(document.body, { childList: true, subtree: true });
+// Also check immediately at load
+checkAndBroadcastChannelInfo();
