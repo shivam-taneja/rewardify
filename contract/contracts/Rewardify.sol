@@ -43,4 +43,16 @@ contract Rewardify {
         channelPools[channelId] = ChannelPool({owner: owner, balance: 0});
         emit PoolCreated(channelId, owner);
     }
+
+    /// @notice Tip a channel's pool - funds accumulate in the pool
+    /// @param channelId hashed channel id
+    function tip(bytes32 channelId) external payable {
+        ChannelPool storage pool = channelPools[channelId];
+        require(pool.owner != address(0), "Channel not registered");
+        require(msg.value > 0, "No ETH sent");
+
+        // Add tip to pool balance
+        pool.balance += msg.value;
+        emit Tipped(channelId, msg.sender, msg.value);
+    }
 }
