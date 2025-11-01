@@ -99,4 +99,24 @@ contract Rewardify {
 
         emit Withdrawn(channelId, pool.owner, totalPool);
     }
+
+    /// @notice Get pool balance for a channelId
+    function getPoolBalance(bytes32 channelId) external view returns (uint256) {
+        return channelPools[channelId].balance;
+    }
+
+    /// @notice Get owner wallet for a channelId
+    function getOwner(bytes32 channelId) external view returns (address) {
+        return channelPools[channelId].owner;
+    }
+
+
+    // If someone sends ETH directly to the contract, reject to avoid accidental locks
+    receive() external payable {
+        revert("Use tip(channelId) to send funds");
+    }
+
+    fallback() external payable {
+        revert("Use tip(channelId) to send funds");
+    }
 }
