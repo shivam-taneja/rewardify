@@ -55,4 +55,48 @@ contract Rewardify {
         pool.balance += msg.value;
         emit Tipped(channelId, msg.sender, msg.value);
     }
+
+    /// @notice Withdraw and distribute - backend specifies all recipients and amounts
+    /// @param channelId hashed channel id
+    /// @param recipients array of wallet addresses (creator, platform, top viewer, etc.)
+    /// @param amounts array of amounts for each recipient (must match recipients length)
+    function withdraw(
+        bytes32 channelId,
+        address[] calldata recipients,
+        uint256[] calldata amounts
+    ) external {
+        ChannelPool storage pool = channelPools[channelId];
+        require(pool.owner != address(0), "Channel not registered");
+        require(msg.sender == pool.owner, "Not channel owner");
+        require(recipients.length == amounts.length, "Length mismatch");
+        require(recipients.length > 0, "No recipients");
+
+        uint256 totalPool = pool.balance;
+        require(totalPool > 0, "Empty pool");
+
+        // Calculate total payout
+        uint256 totalPayout = 0;
+        for (uint256 i = 0; i < amounts.length; i++) {
+            totalPayout += amounts[i];
+        }
+
+        // Ensure we don't pay out more than pool balance
+        require(totalPayout <= totalPool, "Payout exceeds pool balance");
+
+        // Reset pool before transfers (reentrancy safety)
+        pool.balance = 0;
+
+        // Send to each recipient
+        for (uint256 i = 0; i < recipients.length; i++) {
+            require(recipients[i] != address(0), "Invalid recipient");
+            if (amounts[i] == 0) continue;
+
+            (bool success, ) = payable(recipients[i]).call{value: amounts[i]}(
+                ""
+            );
+            require(success, "Transfer failed");
+        }
+
+        emit Withdrawn(channelId, pool.owner, totalPool);
+    }
 }
