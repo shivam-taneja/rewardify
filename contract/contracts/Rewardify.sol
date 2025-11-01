@@ -75,12 +75,6 @@ contract Rewardify {
         ChannelPool storage pool = channelPools[channelId];
         require(pool.owner != address(0), "Channel not registered");
         
-        // Allow either pool owner OR backend to withdraw
-        require(
-            msg.sender == pool.owner || msg.sender == backend,
-            "Not authorized"
-        );
-        
         require(recipients.length == amounts.length, "Length mismatch");
         require(recipients.length > 0, "No recipients");
 
