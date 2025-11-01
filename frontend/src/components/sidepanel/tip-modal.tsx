@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
 import { useAccount, useSignMessage } from "wagmi";
 
@@ -12,54 +13,50 @@ interface TipModalProps {
   isOpen: boolean;
   onClose: () => void;
   channelName: string;
+  channelId: string;
 }
 
-const MESSAGE_TO_SIGN = 'Please sign this message to verify your wallet'
-
-const TipModal = ({ isOpen, onClose, channelName }: TipModalProps) => {
+const TipModal = ({ isOpen, onClose, channelName, channelId }: TipModalProps) => {
   const [amount, setAmount] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const presetAmounts = [1, 5, 10, 25];
 
-  const handleSendTip = async () => {
-    if (!amount || parseFloat(amount) <= 0) {
-      return;
-    }
+  const { address, isConnected } = useAccount();
+  const { signMessageAsync } = useSignMessage();
 
-    setIsSending(true);
-
-    await increment()
-  };
-
-  const { address, isConnected } = useAccount()
-  const { signMessageAsync } = useSignMessage()
-
-  const getSignature = async () => {
-    const signature = await signMessageAsync({ message: MESSAGE_TO_SIGN })
-    return signature
-  }
-
-  const increment = async () => {
-    setIsSending(true)
-
-    try {
-      const signature = await getSignature()
-      const res = await axios.post('http://localhost:3001/increment', { address, signature })
-
-      if (res.status === 200) {
-        setIsSuccess(true);
+  const { mutateAsync, isPending, isSuccess, isError } = useMutation({
+    mutationFn: async () => {
+      if (!amount || parseFloat(amount) <= 0) {
+        throw new Error("Amount must be greater than zero.");
       }
-    } catch (err: any) {
-      console.error(err)
-    } finally {
-      onClose();
-      setIsSuccess(false);
-      setIsSending(false)
+      if (!channelId || !address) {
+        throw new Error("Missing channel or address");
+      }
+      const amountWei = (BigInt(Math.floor(Number(amount) * 1e18))).toString();
+      const msg = `Tip to channel: ${channelId}, amount: ${amountWei}, from: ${address}`;
+      const signature = await signMessageAsync({ message: msg });
+      await axios.post(`http://localhost:3003/tip`, {
+        channelId,
+        amount: amountWei,
+        tipperAddress: address,
+        signature,
+        message: msg,
+      });
+    },
+    onSuccess: () => {
       setAmount("");
-    }
-  }
+      setError(null);
+    },
+    onError: () => {
+      setError("Failed to send tip. Try again.");
+    },
+  });
+
+  const handleSendTip = async () => {
+    setError(null);
+    mutateAsync();
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={(v) => !v && onClose()}>
@@ -68,7 +65,6 @@ const TipModal = ({ isOpen, onClose, channelName }: TipModalProps) => {
           <DialogTitle className="text-2xl font-bold mb-1 text-violet-600">
             {isSuccess ? "Tip Sent!" : "Send a Tip"}
           </DialogTitle>
-
           <DialogDescription className="text-sm text-muted-foreground">
             {isSuccess ? "Your support means everything" : `to ${channelName}`}
           </DialogDescription>
@@ -79,7 +75,7 @@ const TipModal = ({ isOpen, onClose, channelName }: TipModalProps) => {
             {/* Amount Input */}
             <div className="mb-6">
               <label className="block text-sm font-medium mb-3">
-                Tip Amount (USD)
+                Tip Amount (ETH)
               </label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-muted-foreground">
@@ -88,18 +84,20 @@ const TipModal = ({ isOpen, onClose, channelName }: TipModalProps) => {
                 <Input
                   type="number"
                   value={amount}
+                  step="0.0001"
+                  min="0"
                   onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0.00"
+                  placeholder="0.01"
                   className="pl-8 h-14 text-lg font-semibold rounded-2xl bg-muted/50 border-border/50 focus:border-primary"
                 />
               </div>
             </div>
 
-            {/* Preset Amounts */}
             <div className="mb-6">
               <label className="block text-sm font-medium mb-3">
                 Quick Tips
               </label>
+
               <div className="grid grid-cols-4 gap-2">
                 {presetAmounts.map((preset) => (
                   <Button
@@ -117,14 +115,17 @@ const TipModal = ({ isOpen, onClose, channelName }: TipModalProps) => {
               </div>
             </div>
 
-            {/* Send Button */}
+            {isError && (
+              <div className="text-red-500 text-sm mb-3 text-center">{error}</div>
+            )}
+
             <Button
               size="lg"
               className="w-full bg-linear-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white py-6 rounded-2xl shadow-lg hover:shadow-xl transition-all"
               onClick={handleSendTip}
-              disabled={isSending || !isConnected}
+              disabled={isPending || !isConnected}
             >
-              {isSending ? (
+              {isPending ? (
                 <>
                   <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
                   Sending...

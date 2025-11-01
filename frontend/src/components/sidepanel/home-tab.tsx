@@ -82,17 +82,21 @@ const HomeTab = () => {
 
   const regExists = (regInfo && regInfo.exists) || false;
 
-  const { mutateAsync: verifyChannel, isPending } = useMutation({
+  const { mutateAsync, isPending } = useMutation({
     mutationFn: async () => {
       if (!channel.channelId || !address) throw new Error();
       const msg = `Verify ownership for channel: ${channel.channelId}\nWallet: ${address}`;
       const signature = await signMessageAsync({ message: msg });
-      await axios.post(`http://localhost:3003/register`, { channelId: channel.channelId, owner: address, signature });
+      await axios.post(`http://localhost:3003/register`, { channelId: channel.channelId, owner: address, signature, message: msg });
     },
     onSuccess: () => {
       refetchReg();
     }
   });
+
+  const verifyChannel = async () => {
+    await mutateAsync()
+  }
 
   const avatarFallback =
     channel.name
@@ -152,7 +156,7 @@ const HomeTab = () => {
                     <ShieldAlert className="w-4 h-4 text-yellow-500" />
                     <button
                       className="text-xs text-yellow-700 underline hover:opacity-70 px-1 cursor-pointer"
-                      onClick={() => verifyChannel}
+                      onClick={verifyChannel}
                       disabled={isPending}
                     >
                       Channel not registered. Link & verify
