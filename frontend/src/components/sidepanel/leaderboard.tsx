@@ -60,10 +60,10 @@ const LeaderboardView = () => {
   // Recipients hardcoded: Top watchers
   const recipients = [
     "0x52da84ecc16519cdc63bb28a64ce6f51ad6f1abf",
-    "0x2211ee747c6905b6343f305e7685dc7f68edebfd"
+    "0x2211ee747c6905b6343f305e7685dc7f68edebfd",
   ];
   // Hardcode withdrawal amounts as demo (e.g. equally split 1 ETH)
-  const amounts = ["0.5", "0.5"]; // Send 0.5 ETH to each
+  const amounts = ["0.0000005", "0.00000005"]; // Send 0.5 ETH to each
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
   const { address, isConnected } = useAccount();
