@@ -1,6 +1,7 @@
-import path from 'node:path'
 import { crx } from '@crxjs/vite-plugin'
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import path from 'node:path'
 import { defineConfig } from 'vite'
 import zip from 'vite-plugin-zip-pack'
 import manifest from './manifest.config.js'
@@ -16,6 +17,7 @@ export default defineConfig({
     react(),
     crx({ manifest }),
     zip({ outDir: 'release', outFileName: `crx-${name}-${version}.zip` }),
+    tailwindcss()
   ],
   server: {
     cors: {
