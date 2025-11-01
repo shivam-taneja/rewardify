@@ -99,7 +99,6 @@ function isOnValidYouTubePage() {
 function getChannelInfo() {
   if (!isOnValidYouTubePage()) return null;
 
-  // Handle each layout type separately
   const path = location.pathname;
 
   // 🎥 Watch page
@@ -121,35 +120,46 @@ function getChannelInfo() {
 
     const name = owner.querySelector('a.yt-core-attributed-string__link')?.textContent?.trim() || null;
     const avatarUrl = (owner.querySelector('img.yt-spec-avatar-shape__image') as HTMLImageElement | null)?.src || null;
-    const subCount = null; // not available on Shorts layout
+    const subCount = null;
 
     return { name, avatarUrl, subCount };
   }
 
-  // 📺 Channel page
+  // 📺 Channel page (updated selectors)
   if (path.startsWith('/@') || path.startsWith('/channel/')) {
-    // Find the header container
-    const header = document.querySelector('ytd-channel-name, .yt-page-header-view-model__page-header-headline-info');
-    if (!header) return null;
+    const headerInfo = document.querySelector('.yt-page-header-view-model__page-header-headline-info');
+    if (!headerInfo) return null;
 
-    // Channel name
+    // Channel Name
     const name =
-      header.querySelector('h1 span, yt-dynamic-text-view-model h1 span')?.textContent?.trim() || null;
+      headerInfo.querySelector('.yt-page-header-view-model__page-header-title h1 span')?.textContent?.trim() ||
+      null;
 
     // Avatar
-    const avatarUrl =
-      ((document.querySelector('.yt-page-header-view-model__page-header-headline img') ||
-        document.querySelector('yt-decorated-avatar-view-model img')) as HTMLImageElement || null)?.src || null;
+    // Try YouTube's new avatar class, fallback to decorated avatar class:
+    let avatarUrl: string | null = null;
+    const avatarEl =
+      document.querySelector('.yt-page-header-view-model__page-header-headline img') ||
+      document.querySelector('yt-decorated-avatar-view-model img');
+    if (avatarEl && (avatarEl as HTMLImageElement).src) {
+      avatarUrl = (avatarEl as HTMLImageElement).src;
+    }
 
-    // Subscriber count (find any text node that ends with "subscribers")
-    const subCountEl = Array.from(
-      document.querySelectorAll('.yt-content-metadata-view-model__metadata-text, span[role="text"]')
-    ).find((el) => el.textContent?.includes('subscriber'));
-    const subCount = subCountEl?.textContent?.trim() || null;
+    // Subscribers count (find span containing "subscriber")
+    let subCount: string | null = null;
+    const metadataSpans = headerInfo.querySelectorAll('.yt-content-metadata-view-model__metadata-text');
+    metadataSpans.forEach((span) => {
+      if (
+        !subCount &&
+        span.textContent &&
+        span.textContent.toLowerCase().includes('subscriber')
+      ) {
+        subCount = span.textContent.trim();
+      }
+    });
 
     return { name, avatarUrl, subCount };
   }
-
 
   return null;
 }
