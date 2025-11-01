@@ -6,7 +6,7 @@ pragma solidity ^0.8.19;
 contract Rewardify {
     struct ChannelPool {
         address owner; // Creator's wallet
-        uint256 totalReceived; // Total ETH ever received (tracking only)
+        uint256 balance; // ETH in pool
     }
 
     // channelId (hashed) => pool info
@@ -22,21 +22,11 @@ contract Rewardify {
     event Tipped(
         bytes32 indexed channelId,
         address indexed from,
-        address indexed to,
         uint256 amount
     );
-
-    /// @notice Create a pool for a verified channel.
-    /// @param channelId keccak256 hashed channel id (e.g. keccak256("UCxxx..."))
-    /// @param owner creator wallet address
-    function createPool(bytes32 channelId, address owner) external {
-        require(owner != address(0), "Invalid owner");
-        require(
-            channelPools[channelId].owner == address(0),
-            "Pool already exists"
-        );
-
-        channelPools[channelId] = ChannelPool({owner: owner, totalReceived: 0});
-        emit PoolCreated(channelId, owner);
-    }
+    event Withdrawn(
+        bytes32 indexed channelId,
+        address indexed creator,
+        uint256 totalAmount
+    );
 }
