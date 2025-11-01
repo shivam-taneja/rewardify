@@ -101,6 +101,18 @@ function getChannelInfo() {
 
   const path = location.pathname;
 
+  // Helper to extract "/@channelName" from an anchor
+  function extractChannelIdFromAnchor(a: Element | null) {
+    if (!a) return null;
+    const href = (a as HTMLAnchorElement).getAttribute('href');
+    if (href && href.startsWith('/@')) {
+      // Remove anything after first /shorts, /videos, etc. to just keep /@channelName
+      const match = href.match(/^\/(@[A-Za-z0-9_\-\.]+)(?:\/)?.*/);
+      return match ? match[1] : null;
+    }
+    return null;
+  }
+
   // 🎥 Watch page
   if (path === '/watch') {
     const owner = document.querySelector('ytd-watch-flexy ytd-video-owner-renderer');
@@ -110,7 +122,11 @@ function getChannelInfo() {
     const avatarUrl = (owner.querySelector('#avatar img') as HTMLImageElement | null)?.src || null;
     const subCount = owner.querySelector('#owner-sub-count')?.textContent?.trim() || null;
 
-    return { name, avatarUrl, subCount };
+    // Try to get channel id from the first channel link (should be /@channelName)
+    const channelAnchor = owner.querySelector('#channel-name #text a');
+    const channelId = extractChannelIdFromAnchor(channelAnchor);
+
+    return { name, avatarUrl, subCount, channelId };
   }
 
   // 🎬 Shorts page
@@ -121,11 +137,14 @@ function getChannelInfo() {
     const name = owner.querySelector('a.yt-core-attributed-string__link')?.textContent?.trim() || null;
     const avatarUrl = (owner.querySelector('img.yt-spec-avatar-shape__image') as HTMLImageElement | null)?.src || null;
     const subCount = null;
+    // Find the anchor with /@channelName (it has the call-to-action class you showed in your sample)
+    const channelAnchor = owner.querySelector('a.yt-core-attributed-string__link');
+    const channelId = extractChannelIdFromAnchor(channelAnchor);
 
-    return { name, avatarUrl, subCount };
+    return { name, avatarUrl, subCount, channelId };
   }
 
-  // 📺 Channel page (updated selectors)
+  // 📺 Channel page (already /@channelName or /channel/UCxxxx)
   if (path.startsWith('/@') || path.startsWith('/channel/')) {
     const headerInfo = document.querySelector('.yt-page-header-view-model__page-header-headline-info');
     if (!headerInfo) return null;
@@ -136,7 +155,6 @@ function getChannelInfo() {
       null;
 
     // Avatar
-    // Try YouTube's new avatar class, fallback to decorated avatar class:
     let avatarUrl: string | null = null;
     const avatarEl =
       document.querySelector('.yt-page-header-view-model__page-header-headline img') ||
@@ -158,7 +176,16 @@ function getChannelInfo() {
       }
     });
 
-    return { name, avatarUrl, subCount };
+    // Extract the channel id from the path
+    let channelId: string | null = null;
+    if (path.startsWith('/@')) {
+      // Remove possible trailing slashes
+      channelId = path.replace(/^\/(.*?)\/?$/, '$1'); // gives @channelName
+    } else if (path.startsWith('/channel/')) {
+      channelId = path.split('/').slice(2).join('/') || null; // gives UC... id or whatever after /channel/
+    }
+
+    return { name, avatarUrl, subCount, channelId };
   }
 
   return null;
@@ -173,14 +200,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 // Notify sidepanel on SPA navigation/page change (push current info, or null if not on a real YT video)
-let lastChannelInfo: { name: string | null; avatarUrl: string | null; subCount: string | null } | null = null;
+let lastChannelInfo: { name: string | null; avatarUrl: string | null; subCount: string | null; channelId: string | null } | null = null;
 function checkAndBroadcastChannelInfo() {
   const info = getChannelInfo();
 
-  // Compare previous info and broadcast changes (including "null" if you navigate away)
   if (JSON.stringify(info) !== JSON.stringify(lastChannelInfo)) {
     lastChannelInfo = info;
-    chrome.runtime.sendMessage({ type: "CHANNEL_INFO_UPDATED", info }); // info=null means no channel
+    chrome.runtime.sendMessage({ type: "CHANNEL_INFO_UPDATED", info });
   }
 }
 
